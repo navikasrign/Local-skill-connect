@@ -44,18 +44,21 @@ export const CustomerHome = () => {
         const query = searchQuery.toLowerCase();
         const matchesName = provider.name.toLowerCase().includes(query);
         const matchesCategory = provider.category.toLowerCase().includes(query);
-        const matchesRole = provider.roleTitle.toLowerCase().includes(query);
-        const matchesSpecialties = provider.specialties.some(s => s.toLowerCase().includes(query));
-        const matchesArea = provider.neighborhood.toLowerCase().includes(query);
+        const matchesRole = (provider.roleTitle || '').toLowerCase().includes(query);
+        const specialties = provider.specialties || provider.trades || [provider.category];
+        const matchesSpecialties = specialties.some(s => s.toLowerCase().includes(query));
+        const matchesArea = (provider.neighborhood || 'Chennai').toLowerCase().includes(query);
         if (!matchesName && !matchesCategory && !matchesRole && !matchesSpecialties && !matchesArea) {
           return false;
         }
       }
       return true;
     }).sort((a, b) => {
-      if (sortBy === 'rating') return b.rating - a.rating;
-      if (sortBy === 'price_low') return a.fee - b.fee;
-      return a.numDistance - b.numDistance; // nearest
+      if (sortBy === 'rating') return (b.rating || 5.0) - (a.rating || 5.0);
+      if (sortBy === 'price_low') return (a.fee || 199) - (b.fee || 199);
+      const distA = a.numDistance !== undefined ? a.numDistance : 1.5;
+      const distB = b.numDistance !== undefined ? b.numDistance : 1.5;
+      return distA - distB; // nearest
     });
   }, [providers, selectedCategory, searchQuery, sortBy, maxPrice, minRating]);
 

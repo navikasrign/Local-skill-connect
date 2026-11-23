@@ -4,18 +4,70 @@ import { CHENNAI_PROVIDERS } from '../data/providersData';
 const AppContext = createContext();
 
 export const AppProvider = ({ children }) => {
-  // Role: 'customer' | 'provider'
-  const [role, setRole] = useState('customer');
+  // Authentication State persisted in sessionStorage (NOT localStorage, to allow multi-tab concurrency)
+  const [authToken, setAuthToken] = useState(() => {
+    try {
+      return sessionStorage.getItem('lsc_token') || null;
+    } catch {
+      return null;
+    }
+  });
 
-  // Active simulated provider for Provider View (defaults to K. Murugan)
-  const [activeProviderId, setActiveProviderId] = useState('p1');
+  const [authUser, setAuthUser] = useState(() => {
+    try {
+      const u = sessionStorage.getItem('lsc_user');
+      return u ? JSON.parse(u) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const [authProfile, setAuthProfile] = useState(() => {
+    try {
+      const p = sessionStorage.getItem('lsc_profile');
+      return p ? JSON.parse(p) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  // Demo Mode Switch: lets evaluators skip authentication and jump in with seeded demo accounts
+  const [demoMode, setDemoModeState] = useState(() => {
+    try {
+      return sessionStorage.getItem('lsc_demo_mode') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  // Role: 'customer' | 'provider'
+  const [role, setRoleState] = useState(() => {
+    try {
+      const u = sessionStorage.getItem('lsc_user');
+      if (u) {
+        const parsed = JSON.parse(u);
+        return parsed.role || 'customer';
+      }
+    } catch {}
+    return 'customer';
+  });
+
+  // Active simulated provider for Provider View (defaults to K. Murugan / logged-in provider)
+  const [activeProviderId, setActiveProviderId] = useState(() => {
+    try {
+      const u = sessionStorage.getItem('lsc_user');
+      if (u) {
+        const parsed = JSON.parse(u);
+        if (parsed.role === 'provider') return parsed.id;
+      }
+    } catch {}
+    return 'p1';
+  });
+
   const [providerOnline, setProviderOnline] = useState(true);
 
   // Dynamic Providers list (with live ratings & job counts from backend)
   const [providers, setProviders] = useState(CHENNAI_PROVIDERS);
-
-  // Demo Mode Toggle (Requirement 12: simulation shortcuts only behind a clearly labelled toggle)
-  const [demoMode, setDemoMode] = useState(false);
 
   // Search & Filter state
   const [selectedCategory, setSelectedCategory] = useState('all');
@@ -27,7 +79,7 @@ export const AppProvider = ({ children }) => {
   const [selectedProviderForDetail, setSelectedProviderForDetail] = useState(null);
   const [selectedProviderForBooking, setSelectedProviderForBooking] = useState(null);
   const [emergencyModalOpen, setEmergencyModalOpen] = useState(false);
-  const [ratingModalJob, setRatingModalJob] = useState(null); // Requirement 9: auto-open rating screen
+  const [ratingModalJob, setRatingModalJob] = useState(null);
 
   // PWA Install Prompt State
   const [deferredPrompt, setDeferredPrompt] = useState(null);
@@ -57,7 +109,7 @@ export const AppProvider = ({ children }) => {
       address: "Door 14/2, Sivaganga Road, T. Nagar, Chennai - 600017",
       problem: "Main Hall Fan Sparking & MCB Tripping constantly",
       bookingType: "Instant Express (18 min arrival)",
-      status: "ON_THE_WAY", // ACCEPTED | ON_THE_WAY | ARRIVED | IN_PROGRESS | COMPLETED | CANCELLED
+      status: "ON_THE_WAY",
       fee: 199,
       final_amount: 199,
       otp: "4819",
@@ -78,24 +130,128 @@ export const AppProvider = ({ children }) => {
   // Provider Incoming Instant Requests (Queue)
   const [providerRequests, setProviderRequests] = useState([]);
 
+  // Auth methods
+  const login = (token, user, profile = null) => {
+    setAuthToken(token);
+    setAuthUser(user);
+    setAuthProfile(profile);
+    setRoleState(user.role);
+    if (user.role === 'provider') {
+      setActiveProviderId(user.id);
+    }
+    try {
+      sessionStorage.setItem('lsc_token', token);
+      sessionStorage.setItem('lsc_user', JSON.stringify(user));
+      if (profile) {
+        sessionStorage.setItem('lsc_profile', JSON.stringify(profile));
+      } else {
+        sessionStorage.removeItem('lsc_profile');
+      }
+    } catch (e) {
+      console.error("sessionStorage write error:", e);
+    }
+  };
+
+  const logout = () => {
+    setAuthToken(null);
+    setAuthUser(null);
+    setAuthProfile(null);
+    setDemoModeState(false);
+    setRoleState('customer');
+    setActiveProviderId('p1');
+    try {
+      sessionStorage.removeItem('lsc_token');
+      sessionStorage.removeItem('lsc_user');
+      sessionStorage.removeItem('lsc_profile');
+      sessionStorage.removeItem('lsc_demo_mode');
+    } catch (e) {
+      console.error("sessionStorage clear error:", e);
+    }
+  };
+
+  const enterDemoMode = () => {
+    setDemoModeState(true);
+    try {
+      sessionStorage.setItem('lsc_demo_mode', 'true');
+    } catch (e) {
+      console.error("sessionStorage error:", e);
+    }
+  };
+
+  const setDemoMode = (val) => {
+    setDemoModeState(val);
+    try {
+      if (val) {
+        sessionStorage.setItem('lsc_demo_mode', 'true');
+      } else {
+        sessionStorage.removeItem('lsc_demo_mode');
+      }
+    } catch {}
+  };
+
+  const setRole = (newRole) => {
+    // Only allow manual role toggling if in demoMode and not strictly locked to an authUser
+    setRoleState(newRole);
+    if (newRole === 'provider' && authUser?.role === 'provider') {
+      setActiveProviderId(authUser.id);
+    } else if (newRole === 'provider' && !authUser) {
+      setActiveProviderId('p1');
+    }
+  };
+
   // Fetch initial providers from FastAPI backend
   const fetchProvidersFromBackend = async () => {
     try {
       const res = await fetch("/api/providers");
       if (res.ok) {
         const backendProviders = await res.json();
-        setProviders(prev => prev.map(p => {
-          const match = backendProviders.find(bp => bp.id === p.id);
-          if (match) {
-            return {
-              ...p,
-              rating: match.rating,
-              reviewsCount: match.reviews_count,
-              completedJobs: match.completed_jobs
-            };
-          }
-          return p;
-        }));
+        setProviders(prev => {
+          const defaultAvatar = "https://images.unsplash.com/photo-1540569014015-19a7be504e3a?w=120&auto=format&fit=crop&q=80";
+          
+          // 1. Update existing providers with live stats
+          const updated = prev.map(p => {
+            const match = backendProviders.find(bp => bp.id === p.id);
+            if (match) {
+              return {
+                ...p,
+                rating: match.rating,
+                reviewsCount: match.reviews_count,
+                completedJobs: match.completed_jobs,
+                fee: match.fee !== undefined ? match.fee : p.fee,
+                isAvailable: match.is_available !== undefined ? match.is_available : true
+              };
+            }
+            return p;
+          });
+
+          // 2. Add any newly registered backend providers not in prev
+          backendProviders.forEach(bp => {
+            if (!updated.some(p => p.id === bp.id)) {
+              updated.push({
+                id: bp.id,
+                name: bp.name,
+                category: bp.category,
+                roleTitle: bp.role_title || `Certified ${bp.category}`,
+                rating: bp.rating || 5.0,
+                reviewsCount: bp.reviews_count || 0,
+                completedJobs: bp.completed_jobs || 0,
+                eta: "15 mins",
+                distance: "1.2 km",
+                experience: `${bp.experience_years || 3}+ yrs exp`,
+                fee: bp.fee || bp.base_fee || 199,
+                hourlyRate: bp.hourly_rate ? `₹${bp.hourly_rate}/hr` : undefined,
+                warranty: "30-Day Free Rework Warranty",
+                udyamId: bp.udyam_id || "UDYAM-TN-02-0048192",
+                avatar: bp.avatar || defaultAvatar,
+                phone: bp.phone || "+91 98401 23456",
+                isAvailable: bp.is_available !== undefined ? bp.is_available : true,
+                trades: bp.trades || [bp.category]
+              });
+            }
+          });
+
+          return updated;
+        });
       }
     } catch (e) {
       console.log("Could not reach backend /api/providers, using static seed:", e);
@@ -104,19 +260,41 @@ export const AppProvider = ({ children }) => {
 
   useEffect(() => {
     fetchProvidersFromBackend();
-  }, []);
+  }, [authUser]);
 
-  const currentProvider = providers.find(p => p.id === activeProviderId) || providers[0];
+  // Derive current provider for provider view
+  const currentProvider = providers.find(p => p.id === activeProviderId) || (
+    authProfile ? {
+      id: authUser?.id || activeProviderId,
+      name: authUser?.name || 'My Profile',
+      category: authProfile?.trades?.[0] || 'Electrician',
+      roleTitle: authProfile?.specializations || 'Master Specialist',
+      rating: 5.0,
+      reviewsCount: 0,
+      completedJobs: 0,
+      eta: '12 mins',
+      distance: '1.0 km',
+      experience: `${authProfile?.experience_years || 5}+ yrs exp`,
+      fee: authProfile?.base_fee || 199,
+      hourlyRate: authProfile?.hourly_rate ? `₹${authProfile.hourly_rate}/hr` : undefined,
+      warranty: '30-Day Free Rework Warranty',
+      udyamId: authProfile?.udyam_id || 'UDYAM-TN-02-0048192',
+      avatar: 'https://images.unsplash.com/photo-1540569014015-19a7be504e3a?w=120&auto=format&fit=crop&q=80',
+      phone: authUser?.mobile || '+91 98401 23456',
+      isAvailable: true,
+      trades: authProfile?.trades || ['Electrician']
+    } : providers[0]
+  );
 
   // ================= WEBSOCKET CONNECTION =================
   useEffect(() => {
-    const clientId = role === 'customer' ? 'cust_1' : activeProviderId;
+    const clientId = authUser ? authUser.id : (role === 'customer' ? 'cust_1' : activeProviderId);
     const clientType = role === 'customer' ? 'customer' : 'provider';
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
     const wsUrl = `${protocol}//${host}/ws/${clientType}/${clientId}`;
 
-    console.log(`Connecting WebSocket to ${wsUrl}...`);
+    console.log(`Connecting WebSocket to ${wsUrl} as ${clientType}/${clientId}...`);
     let socket;
     try {
       socket = new WebSocket(wsUrl);
@@ -152,7 +330,7 @@ export const AppProvider = ({ children }) => {
             }
           }
 
-          // 1. SOS Broadcast (Arrives to all connected providers)
+          // 1. SOS Broadcast (Arrives to all connected providers matching category)
           if (data.type === 'sos_broadcast') {
             const job = data.job;
             const newReq = {
@@ -295,10 +473,9 @@ export const AppProvider = ({ children }) => {
               return b;
             }));
 
-            // Requirement 9: After Completed, automatically open rating screen for Customer
+            // Automatically open rating screen for Customer when job completes
             if (newStatus === 'COMPLETED') {
               const completedBooking = bookings.find(b => b.id === data.job_id) || updatedJob;
-              // Open rating modal if this is the customer
               setRatingModalJob(completedBooking);
             }
 
@@ -310,7 +487,7 @@ export const AppProvider = ({ children }) => {
             setTimeout(() => setLiveBanner(null), 6000);
           }
 
-          // 8. Provider Rating Updated (Recalculated rating broadcast)
+          // 8. Provider Rating Updated
           if (data.type === 'provider_rating_updated') {
             setProviders(prev => prev.map(p => {
               if (p.id === data.provider_id) {
@@ -349,7 +526,7 @@ export const AppProvider = ({ children }) => {
         socket.close();
       }
     };
-  }, [role, activeProviderId]);
+  }, [role, activeProviderId, authUser?.id]);
 
   // Catch PWA beforeinstallprompt event
   useEffect(() => {
@@ -379,12 +556,13 @@ export const AppProvider = ({ children }) => {
     }
   };
 
-  // Trigger SOS through WebSocket
+  // Trigger SOS through WebSocket (or fallback to REST)
   const triggerWebSocketSOS = (incidentData) => {
     const payload = {
       type: "customer_sos",
-      customer_name: incidentData.customerName || "S. Anand",
-      customer_phone: incidentData.customerPhone || "+91 98840 99882",
+      customer_id: authUser?.id || "cust_1",
+      customer_name: incidentData.customerName || authUser?.name || "S. Anand",
+      customer_phone: incidentData.customerPhone || authUser?.mobile || "+91 98840 99882",
       category: incidentData.category || "Electrician",
       problem: incidentData.problem || "Emergency Spark & Electrical Hazard",
       address: incidentData.address || "Door 14/2, Sivaganga Road, T. Nagar, Chennai - 600017",
@@ -396,7 +574,10 @@ export const AppProvider = ({ children }) => {
     } else {
       fetch("/api/sos", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(authToken ? { "Authorization": `Bearer ${authToken}` } : {})
+        },
         body: JSON.stringify(payload)
       }).catch(console.error);
     }
@@ -407,8 +588,9 @@ export const AppProvider = ({ children }) => {
     const payload = {
       type: "provider_accept",
       job_id: jobId,
+      provider_id: authUser?.id || activeProviderId,
       provider_name: currentProvider.name,
-      provider_phone: currentProvider.phone,
+      provider_phone: authUser?.mobile || currentProvider.phone || "+91 98401 23456",
       provider_udyam: currentProvider.udyamId,
       provider_role: currentProvider.roleTitle,
       eta: currentProvider.eta || "12 mins"
@@ -419,7 +601,10 @@ export const AppProvider = ({ children }) => {
     } else {
       fetch(`/api/jobs/${jobId}/accept`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(authToken ? { "Authorization": `Bearer ${authToken}` } : {})
+        },
         body: JSON.stringify(payload)
       }).catch(console.error);
     }
@@ -430,7 +615,10 @@ export const AppProvider = ({ children }) => {
     try {
       const res = await fetch(`/api/jobs/${jobId}/status`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(authToken ? { "Authorization": `Bearer ${authToken}` } : {})
+        },
         body: JSON.stringify({
           status: newStatus,
           otp: otp,
@@ -443,7 +631,6 @@ export const AppProvider = ({ children }) => {
         throw new Error(data.detail || "Failed to update status");
       }
 
-      // Update local state if not already pushed via websocket
       setBookings(prev => prev.map(b => b.id === jobId ? {
         ...b,
         status: newStatus,
@@ -468,7 +655,10 @@ export const AppProvider = ({ children }) => {
     try {
       const res = await fetch(`/api/jobs/${jobId}/review`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(authToken ? { "Authorization": `Bearer ${authToken}` } : {})
+        },
         body: JSON.stringify(reviewData)
       });
 
@@ -477,14 +667,12 @@ export const AppProvider = ({ children }) => {
         throw new Error(data.detail || "Failed to submit review");
       }
 
-      // Mark job as reviewed locally
       setBookings(prev => prev.map(b => b.id === jobId ? {
         ...b,
         reviewed: true,
         review: reviewData
       } : b));
 
-      // Update provider stats in local state
       if (data.provider) {
         setProviders(prev => prev.map(p => p.id === data.provider.id ? {
           ...p,
@@ -512,6 +700,8 @@ export const AppProvider = ({ children }) => {
       etaRemaining: bookingData.eta || "15 mins",
       final_amount: bookingData.fee,
       reviewed: false,
+      customerName: bookingData.customerName || authUser?.name || "S. Anand",
+      customerPhone: bookingData.customerPhone || authUser?.mobile || "+91 98840 99882",
       ...bookingData
     };
 
@@ -537,6 +727,11 @@ export const AppProvider = ({ children }) => {
 
   return (
     <AppContext.Provider value={{
+      authToken,
+      authUser,
+      authProfile,
+      login,
+      logout,
       role,
       setRole,
       activeProviderId,
@@ -547,6 +742,7 @@ export const AppProvider = ({ children }) => {
       setProviderOnline,
       demoMode,
       setDemoMode,
+      enterDemoMode,
       selectedCategory,
       setSelectedCategory,
       searchQuery,

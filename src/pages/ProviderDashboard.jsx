@@ -3,6 +3,9 @@ import { useApp } from '../context/AppContext';
 
 export const ProviderDashboard = () => {
   const {
+    authUser,
+    authProfile,
+    logout,
     activeProviderId,
     setActiveProviderId,
     currentProvider,
@@ -115,47 +118,48 @@ export const ProviderDashboard = () => {
         </div>
       )}
 
-      {/* Demo Mode Bar (Requirement 12) */}
-      <div className="flex items-center justify-between bg-surface-container-low px-3 py-1.5 rounded-2xl mb-3 border border-outline-variant/30 text-xs">
-        <div className="flex items-center gap-1.5 font-semibold text-on-surface">
-          <span className="material-symbols-outlined text-[16px] text-amber-500">science</span>
-          <span>Testing Controls</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-[11px] text-on-surface-variant font-medium">Demo Mode</span>
-          <button
-            onClick={() => setDemoMode(!demoMode)}
-            className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold transition-all ${
-              demoMode
-                ? 'bg-amber-500 text-white shadow-sm'
-                : 'bg-surface-container text-on-surface-variant'
-            }`}
-          >
-            {demoMode ? 'ON' : 'OFF'}
-          </button>
-        </div>
-      </div>
-
-      {/* Provider Header & Identity Switcher */}
+      {/* Provider Header & Identity Bar */}
       <div className="bg-surface-container-lowest rounded-3xl p-4 shadow-sm border border-outline-variant/30 mb-4">
         <div className="flex items-center justify-between mb-3">
+          {!authUser && demoMode ? (
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-on-surface">Test Profile:</span>
+              <select
+                value={activeProviderId}
+                onChange={(e) => setActiveProviderId(e.target.value)}
+                className="text-xs font-bold p-1 rounded-lg border border-outline-variant/40 bg-surface text-primary"
+              >
+                {providers.map(p => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} ({p.category})
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="text-xs font-bold text-on-surface">
+                {authUser?.name || currentProvider.name} (Verified Artisan)
+              </span>
+            </div>
+          )}
+
           <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-on-surface">Active Profile:</span>
-            <select
-              value={activeProviderId}
-              onChange={(e) => setActiveProviderId(e.target.value)}
-              className="text-xs font-bold p-1 rounded-lg border border-outline-variant/40 bg-surface text-primary"
-            >
-              {providers.map(p => (
-                <option key={p.id} value={p.id}>
-                  {p.name} ({p.category})
-                </option>
-              ))}
-            </select>
+            <span className="text-[10px] bg-slate-navy text-white font-bold px-2 py-0.5 rounded-full">
+              PROVIDER MODE
+            </span>
+            {authUser && (
+              <button
+                onClick={() => logout()}
+                className="text-[10px] font-bold text-error bg-red-50 hover:bg-red-100 px-2 py-0.5 rounded-full border border-red-200 transition-colors flex items-center gap-1"
+                title="Log out from provider account"
+              >
+                <span className="material-symbols-outlined text-[12px]">logout</span>
+                <span>Exit</span>
+              </button>
+            )}
           </div>
-          <span className="text-[10px] bg-blue-100 text-blue-900 font-bold px-2 py-0.5 rounded-full">
-            PROVIDER MODE
-          </span>
         </div>
 
         {/* Profile Card */}

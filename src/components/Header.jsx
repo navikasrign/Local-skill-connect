@@ -4,6 +4,8 @@ import { useApp } from '../context/AppContext';
 
 export const Header = () => {
   const {
+    authUser,
+    demoMode,
     role,
     setRole,
     userLocation,
@@ -112,39 +114,56 @@ export const Header = () => {
           </div>
         </div>
 
-        {/* Right Section: Role Switcher Pill + Notifications */}
+        {/* Right Section: Role Switcher Pill (Demo Mode only) or User Badge */}
         <div className="flex items-center gap-1.5 flex-shrink-0">
-          {/* Role Switcher Pill */}
-          <div className="flex items-center bg-surface-container rounded-full p-0.5 border border-outline-variant/40 shadow-inner">
-            <button
-              onClick={() => {
-                setRole('customer');
-                navigate('/');
-              }}
-              className={`px-2.5 py-1 rounded-full text-[11px] font-bold transition-all flex items-center gap-1 ${
-                role === 'customer'
-                  ? 'bg-primary-container text-white shadow-sm'
-                  : 'text-on-surface-variant hover:text-on-surface'
-              }`}
+          {!authUser && demoMode ? (
+            <div className="flex items-center bg-surface-container rounded-full p-0.5 border border-amber-300 shadow-inner">
+              <button
+                onClick={() => {
+                  setRole('customer');
+                  navigate('/');
+                }}
+                className={`px-2 py-0.5 rounded-full text-[10px] font-bold transition-all flex items-center gap-1 ${
+                  role === 'customer'
+                    ? 'bg-primary-container text-white shadow-sm'
+                    : 'text-on-surface-variant hover:text-on-surface'
+                }`}
+              >
+                <span className="material-symbols-outlined text-[12px]">person</span>
+                <span>Customer</span>
+              </button>
+              <button
+                onClick={() => {
+                  setRole('provider');
+                  navigate('/provider');
+                }}
+                className={`px-2 py-0.5 rounded-full text-[10px] font-bold transition-all flex items-center gap-1 ${
+                  role === 'provider'
+                    ? 'bg-slate-navy text-white shadow-sm'
+                    : 'text-on-surface-variant hover:text-on-surface'
+                }`}
+              >
+                <span className="material-symbols-outlined text-[12px]">handyman</span>
+                <span>Provider</span>
+              </button>
+            </div>
+          ) : authUser ? (
+            <div 
+              onClick={() => navigate(role === 'customer' ? '/profile' : '/provider')}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-surface-container-low border border-outline-variant/40 text-xs cursor-pointer hover:bg-surface-container transition-colors shadow-xs"
+              title="Click to view profile / settings"
             >
-              <span className="material-symbols-outlined text-[13px]">person</span>
-              <span>Customer</span>
-            </button>
-            <button
-              onClick={() => {
-                setRole('provider');
-                navigate('/provider');
-              }}
-              className={`px-2.5 py-1 rounded-full text-[11px] font-bold transition-all flex items-center gap-1 ${
-                role === 'provider'
-                  ? 'bg-slate-navy text-white shadow-sm'
-                  : 'text-on-surface-variant hover:text-on-surface'
-              }`}
-            >
-              <span className="material-symbols-outlined text-[13px]">handyman</span>
-              <span>Provider</span>
-            </button>
-          </div>
+              <span className={`w-2 h-2 rounded-full ${role === 'customer' ? 'bg-primary' : 'bg-slate-navy'} animate-pulse`} />
+              <span className="font-bold text-[11px] text-on-surface max-w-[70px] xs:max-w-[100px] truncate">
+                {authUser.name.split(' ')[0]}
+              </span>
+              <span className={`text-[9px] uppercase font-extrabold px-1.5 py-0.2 rounded-full ${
+                role === 'customer' ? 'bg-primary/10 text-primary' : 'bg-slate-navy/10 text-slate-navy'
+              }`}>
+                {role === 'customer' ? 'Cust' : 'Pro'}
+              </span>
+            </div>
+          ) : null}
 
           {/* Notifications Icon */}
           <div className="relative">

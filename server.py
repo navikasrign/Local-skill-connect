@@ -2,11 +2,14 @@ import os
 import sqlite3
 import json
 import asyncio
-from datetime import datetime
+import re
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 import random
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+import bcrypt
+import jwt
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, HTMLResponse
@@ -14,6 +17,40 @@ from pydantic import BaseModel, Field
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "local_skill_connect.db")
 DIST_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dist")
+JWT_SECRET = os.environ.get("JWT_SECRET", "chennai-skill-connect-super-secret-jwt-key-2026")
+JWT_ALGORITHM = "HS256"
+
+def hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    try:
+        return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
+    except Exception:
+        return False
+
+def create_access_token(user_id: str, role: str, name: str, mobile: str) -> str:
+    payload = {
+        "sub": user_id,
+        "role": role,
+        "name": name,
+        "mobile": mobile,
+        "iat": datetime.utcnow(),
+        "exp": datetime.utcnow() + timedelta(days=7)
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+def decode_token(token: str) -> dict:
+    try:
+        return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid or expired authentication token")
+
+def get_current_user_optional(authorization: Optional[str] = None) -> Optional[dict]:
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
+    token = authorization.split(" ")[1]
+    return decode_token(token)
 
 INITIAL_PROVIDERS = [
     {"id": "p1", "name": "K. Murugan", "category": "Electrician", "role_title": "Master Electrician", "rating": 4.9, "reviews_count": 348, "completed_jobs": 1420},
@@ -35,7 +72,38 @@ def init_db():
     cursor = conn.cursor()
     cursor.execute("PRAGMA journal_mode=WAL;")
 
-    # 1. Jobs Table
+    # 1. Users Table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id TEXT PRIMARY KEY,
+            role TEXT CHECK(role IN ('customer', 'provider')),
+            name TEXT NOT NULL,
+            mobile TEXT UNIQUE NOT NULL,
+            email TEXT UNIQUE,
+            password_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+    """)
+
+    # 2. Provider Profiles Table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS provider_profiles (
+            user_id TEXT PRIMARY KEY,
+            trades TEXT NOT NULL,
+            specializations TEXT,
+            experience_years INTEGER DEFAULT 0,
+            work_days TEXT NOT NULL,
+            work_start TEXT NOT NULL,
+            work_end TEXT NOT NULL,
+            emergency_available INTEGER DEFAULT 1,
+            base_fee INTEGER NOT NULL,
+            hourly_rate INTEGER,
+            udyam_id TEXT,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        );
+    """)
+
+    # 3. Jobs Table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS jobs (
             id TEXT PRIMARY KEY,
@@ -75,7 +143,7 @@ def init_db():
         if col not in existing_cols:
             cursor.execute(f"ALTER TABLE jobs ADD COLUMN {col} {col_type};")
 
-    # 2. Reviews Table (one review allowed per job)
+    # 4. Reviews Table (one review allowed per job)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS reviews (
             id TEXT PRIMARY KEY,
@@ -88,7 +156,7 @@ def init_db():
         );
     """)
 
-    # 3. Providers Table for dynamic rating recalculation
+    # 5. Providers Table for dynamic rating recalculation & catalog
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS providers (
             id TEXT PRIMARY KEY,
@@ -118,6 +186,46 @@ def init_db():
                 p["rating"], p["reviews_count"], p["completed_jobs"],
                 base_sum, p["reviews_count"]
             ))
+
+    # Seed 2 demo accounts if missing:
+    now_str = datetime.now().strftime("%Y-%m-%d %I:%M:%S %p")
+
+    # 1. Demo Customer (mobile 9000000001, password demo123, name S. Anand)
+    cursor.execute("SELECT id FROM users WHERE mobile = ?", ("9000000001",))
+    if not cursor.fetchone():
+        demo_cust_pw = hash_password("demo123")
+        cursor.execute("""
+            INSERT INTO users (id, role, name, mobile, email, password_hash, created_at)
+            VALUES (?, 'customer', ?, ?, ?, ?, ?)
+        """, ("cust_demo_anand", "S. Anand", "9000000001", "anand@chennaicraft.in", demo_cust_pw, now_str))
+
+    # 2. Demo Provider (mobile 9000000002, password demo123, name K. Murugan, Electrician, base fee 199, id: p1)
+    cursor.execute("SELECT id FROM users WHERE mobile = ?", ("9000000002",))
+    if not cursor.fetchone():
+        demo_prov_pw = hash_password("demo123")
+        cursor.execute("""
+            INSERT INTO users (id, role, name, mobile, email, password_hash, created_at)
+            VALUES (?, 'provider', ?, ?, ?, ?, ?)
+        """, ("p1", "K. Murugan", "9000000002", "murugan@chennaicraft.in", demo_prov_pw, now_str))
+
+        cursor.execute("""
+            INSERT OR REPLACE INTO provider_profiles (
+                user_id, trades, specializations, experience_years, work_days,
+                work_start, work_end, emergency_available, base_fee, hourly_rate, udyam_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            "p1",
+            json.dumps(["Electrician"]),
+            "Master Electrician & Smart Lighting",
+            15,
+            json.dumps(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]),
+            "08:00",
+            "20:00",
+            1,
+            199,
+            299,
+            "UDYAM-TN-02-0048192"
+        ))
 
     conn.commit()
     conn.close()
@@ -164,12 +272,18 @@ class ConnectionManager:
                     del self.customers[customer_id]
         print(f"🔴 Customer disconnected: {customer_id}")
 
-    async def broadcast_to_providers(self, message: dict, exclude_provider_id: Optional[str] = None):
+    async def broadcast_to_providers(self, message: dict, category: Optional[str] = None, exclude_provider_id: Optional[str] = None):
         async with self.lock:
             target_sockets = []
             for pid, sockets in self.providers.items():
                 if exclude_provider_id and pid == exclude_provider_id:
                     continue
+                if category:
+                    prov = get_provider_by_id(pid)
+                    if prov:
+                        prov_trades = prov.get("trades", [prov.get("category")])
+                        if category not in prov_trades and prov.get("category") != category:
+                            continue
                 target_sockets.extend(sockets)
 
         for ws in target_sockets:
@@ -233,6 +347,20 @@ def on_startup():
     init_db()
     print("🚀 SQLite database initialized and verified on startup.")
 
+def check_provider_availability(work_days_raw, work_start_str, work_end_str, emergency_avail):
+    if emergency_avail:
+        return True
+    try:
+        now = datetime.now()
+        day_str = now.strftime("%a")
+        days = json.loads(work_days_raw) if isinstance(work_days_raw, str) else (work_days_raw or [])
+        if day_str not in days:
+            return False
+        curr_time = now.strftime("%H:%M")
+        return work_start_str <= curr_time <= work_end_str
+    except Exception:
+        return True
+
 def get_job_by_id(job_id: str):
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -246,19 +374,78 @@ def get_provider_by_id(provider_id: str):
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM providers WHERE id = ?", (provider_id,))
+    cursor.execute("""
+        SELECT p.*,
+               pp.trades, pp.specializations, pp.experience_years, pp.work_days,
+               pp.work_start, pp.work_end, pp.emergency_available, pp.base_fee, pp.hourly_rate, pp.udyam_id,
+               u.mobile as phone, u.email
+        FROM providers p
+        LEFT JOIN provider_profiles pp ON p.id = pp.user_id
+        LEFT JOIN users u ON p.id = u.id
+        WHERE p.id = ?
+    """, (provider_id,))
     row = cursor.fetchone()
     conn.close()
-    return dict(row) if row else None
+    if not row:
+        return None
+    d = dict(row)
+    trades = [d["category"]]
+    if d.get("trades"):
+        try:
+            trades = json.loads(d["trades"])
+        except Exception:
+            pass
+    d["trades"] = trades
+    if d.get("base_fee") is not None:
+        d["fee"] = d["base_fee"]
+    else:
+        d["fee"] = 199
+    d["is_available"] = check_provider_availability(
+        d.get("work_days", '["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]'),
+        d.get("work_start", "08:00"),
+        d.get("work_end", "20:00"),
+        d.get("emergency_available", 1)
+    )
+    return d
 
 def get_all_providers():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM providers ORDER BY rating DESC")
+    cursor.execute("""
+        SELECT p.*,
+               pp.trades, pp.specializations, pp.experience_years, pp.work_days,
+               pp.work_start, pp.work_end, pp.emergency_available, pp.base_fee, pp.hourly_rate, pp.udyam_id,
+               u.mobile as phone, u.email
+        FROM providers p
+        LEFT JOIN provider_profiles pp ON p.id = pp.user_id
+        LEFT JOIN users u ON p.id = u.id
+        ORDER BY p.rating DESC
+    """)
     rows = cursor.fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+    result = []
+    for r in rows:
+        d = dict(r)
+        trades = [d["category"]]
+        if d.get("trades"):
+            try:
+                trades = json.loads(d["trades"])
+            except Exception:
+                pass
+        d["trades"] = trades
+        if d.get("base_fee") is not None:
+            d["fee"] = d["base_fee"]
+        else:
+            d["fee"] = 199
+        d["is_available"] = check_provider_availability(
+            d.get("work_days", '["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]'),
+            d.get("work_start", "08:00"),
+            d.get("work_end", "20:00"),
+            d.get("emergency_available", 1)
+        )
+        result.append(d)
+    return result
 
 def get_active_broadcasting_jobs():
     conn = sqlite3.connect(DB_PATH)
@@ -269,7 +456,36 @@ def get_active_broadcasting_jobs():
     conn.close()
     return [dict(r) for r in rows]
 
-# Pydantic Schemas
+# Auth & User Pydantic Schemas
+class CustomerRegisterRequest(BaseModel):
+    name: str
+    mobile: str
+    email: str
+    password: str
+    confirm_password: str
+
+class ProviderRegisterRequest(BaseModel):
+    name: str
+    mobile: str
+    password: str
+    confirm_password: str
+    trades: List[str]
+    specializations: Optional[str] = ""
+    experience_years: int = 1
+    work_days: List[str] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+    work_start: str = "09:00"
+    work_end: str = "19:00"
+    emergency_available: bool = True
+    base_fee: int = 199
+    hourly_rate: Optional[int] = None
+    udyam_id: Optional[str] = None
+
+class LoginRequest(BaseModel):
+    identifier: str # mobile or email
+    password: str
+    role: Optional[str] = None # 'customer' | 'provider'
+
+# Existing Pydantic Schemas
 class SOSRequest(BaseModel):
     customer_id: str = "cust_1"
     customer_name: str = "S. Anand"
@@ -329,13 +545,13 @@ async def process_sos_creation(req: SOSRequest):
 
     job_data = get_job_by_id(job_id)
 
-    # 1. Broadcast to ALL connected providers
+    # 1. Broadcast to matching connected providers for this trade category
     broadcast_msg = {
         "type": "sos_broadcast",
         "job": job_data,
         "message": f"🚨 EMERGENCY SOS DISPATCH: {req.problem} in {req.address.split(',')[1].strip()}! First to tap Accept wins!"
     }
-    await manager.broadcast_to_providers(broadcast_msg)
+    await manager.broadcast_to_providers(broadcast_msg, category=req.category)
 
     # 2. Confirm to customer
     customer_msg = {
@@ -594,6 +810,260 @@ def health_check():
         "connected_customers": list(manager.customers.keys())
     }
 
+# ================= AUTHENTICATION ENDPOINTS =================
+@app.post("/api/auth/register/customer")
+def register_customer(req: CustomerRegisterRequest):
+    name = req.name.strip()
+    if len(name) < 2:
+        raise HTTPException(status_code=400, detail="Please enter a valid full name (at least 2 characters).")
+    
+    clean_mobile = re.sub(r"\D", "", req.mobile)
+    if len(clean_mobile) != 10:
+        raise HTTPException(status_code=400, detail="Mobile number must be a valid 10-digit Indian phone number.")
+    
+    email = req.email.strip().lower()
+    if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+        raise HTTPException(status_code=400, detail="Please enter a valid email address.")
+    
+    if len(req.password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters long.")
+    
+    if req.password != req.confirm_password:
+        raise HTTPException(status_code=400, detail="Passwords do not match.")
+    
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT id FROM users WHERE mobile = ?", (clean_mobile,))
+    if cursor.fetchone():
+        conn.close()
+        raise HTTPException(status_code=400, detail="An account with this mobile number already exists.")
+    
+    cursor.execute("SELECT id FROM users WHERE email = ?", (email,))
+    if cursor.fetchone():
+        conn.close()
+        raise HTTPException(status_code=400, detail="An account with this email address already exists.")
+    
+    user_id = f"cust_{clean_mobile[-4:]}_{random.randint(100, 999)}"
+    pw_hash = hash_password(req.password)
+    now_str = datetime.now().strftime("%Y-%m-%d %I:%M:%S %p")
+    
+    cursor.execute("""
+        INSERT INTO users (id, role, name, mobile, email, password_hash, created_at)
+        VALUES (?, 'customer', ?, ?, ?, ?, ?)
+    """, (user_id, name, clean_mobile, email, pw_hash, now_str))
+    conn.commit()
+    conn.close()
+    
+    token = create_access_token(user_id, "customer", name, clean_mobile)
+    return {
+        "success": True,
+        "token": token,
+        "user": {
+            "id": user_id,
+            "role": "customer",
+            "name": name,
+            "mobile": clean_mobile,
+            "email": email
+        }
+    }
+
+@app.post("/api/auth/register/provider")
+def register_provider(req: ProviderRegisterRequest):
+    name = req.name.strip()
+    if len(name) < 2:
+        raise HTTPException(status_code=400, detail="Please enter a valid full name.")
+    
+    clean_mobile = re.sub(r"\D", "", req.mobile)
+    if len(clean_mobile) != 10:
+        raise HTTPException(status_code=400, detail="Mobile number must be 10 digits.")
+    
+    if len(req.password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters.")
+    
+    if req.password != req.confirm_password:
+        raise HTTPException(status_code=400, detail="Passwords do not match.")
+    
+    if not req.trades or len(req.trades) == 0:
+        raise HTTPException(status_code=400, detail="Please select at least one trade.")
+    
+    valid_trades = {"Electrician", "Plumber", "Carpenter", "Appliance & AC"}
+    for t in req.trades:
+        if t not in valid_trades:
+            raise HTTPException(status_code=400, detail=f"Invalid trade category: {t}")
+    
+    if req.base_fee < 50:
+        raise HTTPException(status_code=400, detail="Base inspection fee must be at least ₹50.")
+    
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT id FROM users WHERE mobile = ?", (clean_mobile,))
+    if cursor.fetchone():
+        conn.close()
+        raise HTTPException(status_code=400, detail="An account with this mobile number already exists.")
+    
+    user_id = f"p_{clean_mobile[-4:]}_{random.randint(100, 999)}"
+    pw_hash = hash_password(req.password)
+    now_str = datetime.now().strftime("%Y-%m-%d %I:%M:%S %p")
+    
+    cursor.execute("""
+        INSERT INTO users (id, role, name, mobile, email, password_hash, created_at)
+        VALUES (?, 'provider', ?, ?, NULL, ?, ?)
+    """, (user_id, name, clean_mobile, pw_hash, now_str))
+    
+    udyam = (req.udyam_id or "").strip() or f"UDYAM-TN-02-00{clean_mobile[-5:]}"
+    spec = req.specializations.strip() if req.specializations else f"Master {req.trades[0]}"
+    
+    cursor.execute("""
+        INSERT INTO provider_profiles (
+            user_id, trades, specializations, experience_years, work_days,
+            work_start, work_end, emergency_available, base_fee, hourly_rate, udyam_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        user_id,
+        json.dumps(req.trades),
+        spec,
+        req.experience_years,
+        json.dumps(req.work_days),
+        req.work_start,
+        req.work_end,
+        1 if req.emergency_available else 0,
+        req.base_fee,
+        req.hourly_rate,
+        udyam
+    ))
+    
+    # Auto-sync to providers table so they appear in Explore list immediately
+    cursor.execute("""
+        INSERT INTO providers (
+            id, name, category, role_title, rating, reviews_count, completed_jobs, base_rating_sum, base_rating_count
+        ) VALUES (?, ?, ?, ?, 5.0, 0, 0, 0.0, 0)
+    """, (user_id, name, req.trades[0], spec))
+    
+    conn.commit()
+    conn.close()
+    
+    token = create_access_token(user_id, "provider", name, clean_mobile)
+    return {
+        "success": True,
+        "token": token,
+        "user": {
+            "id": user_id,
+            "role": "provider",
+            "name": name,
+            "mobile": clean_mobile
+        },
+        "profile": {
+            "trades": req.trades,
+            "specializations": spec,
+            "experience_years": req.experience_years,
+            "work_days": req.work_days,
+            "work_start": req.work_start,
+            "work_end": req.work_end,
+            "emergency_available": req.emergency_available,
+            "base_fee": req.base_fee,
+            "hourly_rate": req.hourly_rate,
+            "udyam_id": udyam
+        }
+    }
+
+@app.post("/api/auth/login")
+def login_api(req: LoginRequest):
+    raw_id = req.identifier.strip()
+    clean_mobile = re.sub(r"\D", "", raw_id)
+    is_mobile = (len(clean_mobile) == 10)
+    
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    
+    if is_mobile:
+        cursor.execute("SELECT * FROM users WHERE mobile = ?", (clean_mobile,))
+    else:
+        cursor.execute("SELECT * FROM users WHERE email = ? OR mobile = ?", (raw_id.lower(), raw_id))
+    user = cursor.fetchone()
+    
+    if not user:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Account not found. Please check your mobile number or email.")
+    
+    u_dict = dict(user)
+    if not verify_password(req.password, u_dict["password_hash"]):
+        conn.close()
+        raise HTTPException(status_code=400, detail="Incorrect password. Please try again.")
+    
+    if req.role and req.role != u_dict["role"]:
+        conn.close()
+        target = req.role.capitalize()
+        actual = u_dict["role"].capitalize()
+        raise HTTPException(
+            status_code=400,
+            detail=f"This account is registered as a {actual}. Please log in via the {actual} portal."
+        )
+    
+    profile = None
+    if u_dict["role"] == "provider":
+        cursor.execute("SELECT * FROM provider_profiles WHERE user_id = ?", (u_dict["id"],))
+        p_row = cursor.fetchone()
+        if p_row:
+            profile = dict(p_row)
+            try:
+                profile["trades"] = json.loads(profile["trades"])
+                profile["work_days"] = json.loads(profile["work_days"])
+            except Exception:
+                pass
+    
+    conn.close()
+    
+    token = create_access_token(u_dict["id"], u_dict["role"], u_dict["name"], u_dict["mobile"])
+    return {
+        "success": True,
+        "token": token,
+        "user": {
+            "id": u_dict["id"],
+            "role": u_dict["role"],
+            "name": u_dict["name"],
+            "mobile": u_dict["mobile"],
+            "email": u_dict.get("email")
+        },
+        "profile": profile
+    }
+
+@app.get("/api/auth/me")
+def get_current_user_profile(authorization: Optional[str] = Header(None)):
+    claims = get_current_user_optional(authorization)
+    if not claims:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+    
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, role, name, mobile, email, created_at FROM users WHERE id = ?", (claims["sub"],))
+    user = cursor.fetchone()
+    if not user:
+        conn.close()
+        raise HTTPException(status_code=404, detail="User account not found.")
+    
+    u_dict = dict(user)
+    profile = None
+    if u_dict["role"] == "provider":
+        cursor.execute("SELECT * FROM provider_profiles WHERE user_id = ?", (u_dict["id"],))
+        p_row = cursor.fetchone()
+        if p_row:
+            profile = dict(p_row)
+            try:
+                profile["trades"] = json.loads(profile["trades"])
+                profile["work_days"] = json.loads(profile["work_days"])
+            except Exception:
+                pass
+    conn.close()
+    return {"user": u_dict, "profile": profile}
+
+# ================= CORE DATA ENDPOINTS =================
+
 @app.get("/api/providers")
 def list_providers():
     return get_all_providers()
@@ -635,19 +1105,31 @@ def get_job_review(job_id: str):
     return {"reviewed": True, "review": dict(row)}
 
 @app.post("/api/sos")
-async def create_sos_api(req: SOSRequest):
+async def create_sos_api(req: SOSRequest, authorization: Optional[str] = Header(None)):
+    claims = get_current_user_optional(authorization)
+    if claims and claims.get("role") == "provider":
+        raise HTTPException(status_code=403, detail="Providers cannot broadcast customer emergency SOS requests.")
     return await process_sos_creation(req)
 
 @app.post("/api/jobs/{job_id}/accept")
-async def accept_job_api(job_id: str, accept_data: AcceptRequest):
+async def accept_job_api(job_id: str, accept_data: AcceptRequest, authorization: Optional[str] = Header(None)):
+    claims = get_current_user_optional(authorization)
+    if claims and claims.get("role") == "customer":
+        raise HTTPException(status_code=403, detail="Customers cannot accept technician dispatches.")
     return await process_job_acceptance(job_id, accept_data)
 
 @app.post("/api/jobs/{job_id}/status")
-async def update_job_status_api(job_id: str, update_req: StatusUpdateRequest):
+async def update_job_status_api(job_id: str, update_req: StatusUpdateRequest, authorization: Optional[str] = Header(None)):
+    claims = get_current_user_optional(authorization)
+    if claims and claims.get("role") == "customer":
+        raise HTTPException(status_code=403, detail="Customers cannot update technician job lifecycle status.")
     return await process_status_update(job_id, update_req)
 
 @app.post("/api/jobs/{job_id}/review")
-async def submit_review_api(job_id: str, review_data: ReviewCreate):
+async def submit_review_api(job_id: str, review_data: ReviewCreate, authorization: Optional[str] = Header(None)):
+    claims = get_current_user_optional(authorization)
+    if claims and claims.get("role") == "provider":
+        raise HTTPException(status_code=403, detail="Providers cannot submit customer reviews.")
     return await process_review_submission(job_id, review_data)
 
 

@@ -4,6 +4,13 @@ import { useApp } from '../context/AppContext';
 export const ProviderCard = ({ provider }) => {
   const { setSelectedProviderForDetail, setSelectedProviderForBooking } = useApp();
 
+  const feeDisplay = provider.currencyFee || `₹${provider.fee || provider.base_fee || 199}`;
+  const specialties = provider.specialties || provider.trades || [provider.category];
+  const experienceText = provider.experience || `${provider.experience_years || 5}+ yrs exp`;
+  const warrantyText = provider.warranty || '30-Day Free Rework Warranty';
+  const distanceText = provider.distance || '1.2 km';
+  const etaText = provider.eta || '15 mins';
+
   return (
     <div className="bg-surface-container-lowest rounded-3xl p-4 mb-3.5 shadow-sm border border-outline-variant/30 transition-all hover:shadow-md">
       {/* Top Header: Avatar, Name, Rate */}
@@ -13,11 +20,11 @@ export const ProviderCard = ({ provider }) => {
       >
         <div className="relative w-14 h-14 rounded-full overflow-hidden flex-shrink-0 bg-surface-container ring-2 ring-primary/10">
           <img
-            src={provider.avatar}
+            src={provider.avatar || "https://images.unsplash.com/photo-1540569014015-19a7be504e3a?w=120&auto=format&fit=crop&q=80"}
             alt={provider.name}
             className="w-full h-full object-cover"
           />
-          {provider.isOnline && (
+          {provider.isOnline !== false && (
             <span className="absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full bg-emerald-500 ring-2 ring-white" />
           )}
         </div>
@@ -28,12 +35,12 @@ export const ProviderCard = ({ provider }) => {
               {provider.name}
             </h3>
             <span className="font-currency-md text-base font-bold text-primary flex-shrink-0">
-              {provider.currencyFee}
+              {feeDisplay}
             </span>
           </div>
 
           <p className="font-body-sm text-xs text-on-surface-variant truncate">
-            {provider.roleTitle} • {provider.experience}
+            {provider.roleTitle} • {experienceText}
           </p>
 
           <div className="flex items-center gap-2 mt-1 flex-wrap">
@@ -50,8 +57,8 @@ export const ProviderCard = ({ provider }) => {
               <span className="material-symbols-outlined text-[15px] text-amber-500" style={{ fontVariationSettings: "'FILL' 1" }}>
                 star
               </span>
-              <strong className="font-bold text-on-surface">{provider.rating}</strong>
-              <span className="text-on-surface-variant font-normal">({provider.reviewsCount})</span>
+              <strong className="font-bold text-on-surface">{provider.rating || 5.0}</strong>
+              <span className="text-on-surface-variant font-normal">({provider.reviewsCount || 0})</span>
             </span>
           </div>
         </div>
@@ -63,32 +70,32 @@ export const ProviderCard = ({ provider }) => {
           <span className="material-symbols-outlined text-[16px] text-secondary">
             distance
           </span>
-          {provider.distance}
+          {distanceText}
         </span>
         <span className="flex items-center gap-1 font-bold text-primary flex-shrink-0">
           <span className="material-symbols-outlined text-[16px]">
             timer
           </span>
-          Arrives in {provider.eta}
+          Arrives in {etaText}
         </span>
       </div>
 
       {/* Specialties */}
       <p className="font-body-sm text-xs text-on-surface-variant mb-3 line-clamp-1">
         <span className="font-semibold text-on-surface">Specialties:</span>{' '}
-        {provider.specialties.join(', ')}
+        {specialties.join(', ')}
       </p>
 
       {/* Warranty Pill */}
       <div className="flex items-center gap-1 text-[11px] text-emerald-700 bg-emerald-50/80 px-2.5 py-1 rounded-lg mb-3">
         <span className="material-symbols-outlined text-[14px]">verified</span>
-        <span className="font-medium truncate">{provider.warranty}</span>
+        <span className="font-medium truncate">{warrantyText}</span>
       </div>
 
       {/* Actions */}
       <div className="flex items-center gap-2">
         <a
-          href={`tel:${provider.phone}`}
+          href={`tel:${provider.phone || '+91 98401 23456'}`}
           aria-label={`Call ${provider.name}`}
           className="w-11 h-11 rounded-full bg-surface-container flex items-center justify-center text-on-surface hover:bg-secondary-container transition-colors flex-shrink-0"
         >

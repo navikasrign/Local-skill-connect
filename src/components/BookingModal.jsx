@@ -4,6 +4,7 @@ import { useApp } from '../context/AppContext';
 
 export const BookingModal = () => {
   const {
+    authUser,
     selectedProviderForBooking,
     setSelectedProviderForBooking,
     createBooking,
@@ -24,6 +25,8 @@ export const BookingModal = () => {
 
   const handleConfirm = () => {
     setIsSubmitting(true);
+    const custName = authUser?.name || "S. Anand";
+    const custPhone = authUser?.mobile ? `+91 ${authUser.mobile}` : "+91 98840 99882";
     setTimeout(() => {
       createBooking({
         providerId: provider.id,
@@ -31,8 +34,9 @@ export const BookingModal = () => {
         providerRole: provider.roleTitle,
         providerPhone: provider.phone,
         category: provider.category,
-        customerName: "S. Anand",
-        customerPhone: "+91 98840 99882",
+        customerName: custName,
+        customerPhone: custPhone,
+        customerEmail: authUser?.email,
         address: customerAddress,
         problem: problemDescription || `General ${provider.category} troubleshooting`,
         bookingType: bookingType === 'express' ? `Instant Express (${provider.eta})` : scheduledTime,
@@ -147,6 +151,20 @@ export const BookingModal = () => {
             onChange={(e) => setProblemDescription(e.target.value)}
             className="w-full text-xs p-3 rounded-xl border border-outline-variant bg-surface-container-lowest text-on-surface focus:outline-none focus:ring-2 focus:ring-primary"
           />
+        </div>
+
+        {/* Customer Information (Pre-filled from Account) */}
+        <div className="mb-4 p-2.5 rounded-xl bg-surface-container-low border border-outline-variant/30 text-xs">
+          <div className="flex items-center justify-between mb-1">
+            <span className="font-bold text-on-surface">Booked For:</span>
+            <span className="text-[10px] text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded font-semibold">
+              Verified Account
+            </span>
+          </div>
+          <div className="flex items-center justify-between text-on-surface-variant text-[11px]">
+            <span className="font-semibold text-on-surface">{authUser?.name || "S. Anand"}</span>
+            <span>{authUser?.mobile ? `+91 ${authUser.mobile}` : "+91 98840 99882"}</span>
+          </div>
         </div>
 
         {/* Location / Address */}

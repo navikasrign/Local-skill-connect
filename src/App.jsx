@@ -1,5 +1,5 @@
-import React from 'react';
-import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { useApp } from './context/AppContext';
 import { Header } from './components/Header';
 import { BottomNav } from './components/BottomNav';
@@ -8,7 +8,14 @@ import { ProviderDetailModal } from './components/ProviderDetailModal';
 import { SOSModal } from './components/SOSModal';
 import { RatingModal } from './components/RatingModal';
 
-// Pages
+// Auth Pages
+import { WelcomeScreen } from './pages/WelcomeScreen';
+import { CustomerLogin } from './pages/CustomerLogin';
+import { CustomerRegister } from './pages/CustomerRegister';
+import { ProviderLogin } from './pages/ProviderLogin';
+import { ProviderRegister } from './pages/ProviderRegister';
+
+// Main Pages
 import { CustomerHome } from './pages/CustomerHome';
 import { BookingsPage } from './pages/BookingsPage';
 import { SOSPage } from './pages/SOSPage';
@@ -18,8 +25,71 @@ import { ProviderJobsPage } from './pages/ProviderJobsPage';
 import { ProviderEarningsPage } from './pages/ProviderEarningsPage';
 
 export const App = () => {
-  const { liveBanner, setLiveBanner, role, setRole, wsConnected } = useApp();
+  const {
+    authUser,
+    demoMode,
+    liveBanner,
+    setLiveBanner,
+    role,
+    setRole,
+    wsConnected
+  } = useApp();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // Screen selection for unauthenticated users:
+  // 'welcome' | 'customer-login' | 'customer-register' | 'provider-login' | 'provider-register'
+  const [authView, setAuthView] = useState('welcome');
+
+  // Route customer to / and provider to /provider upon login
+  useEffect(() => {
+    if (authUser) {
+      if (authUser.role === 'provider' && location.pathname === '/') {
+        navigate('/provider', { replace: true });
+      } else if (authUser.role === 'customer' && location.pathname.startsWith('/provider')) {
+        navigate('/', { replace: true });
+      }
+    }
+  }, [authUser?.role]);
+
+  // If user is not authenticated and demo mode is OFF, render Welcome / Auth screens
+  if (!authUser && !demoMode) {
+    if (authView === 'customer-login') {
+      return (
+        <CustomerLogin
+          onSwitchAuth={setAuthView}
+          onBackToWelcome={() => setAuthView('welcome')}
+        />
+      );
+    }
+    if (authView === 'customer-register') {
+      return (
+        <CustomerRegister
+          onSwitchAuth={setAuthView}
+          onBackToWelcome={() => setAuthView('welcome')}
+        />
+      );
+    }
+    if (authView === 'provider-login') {
+      return (
+        <ProviderLogin
+          onSwitchAuth={setAuthView}
+          onBackToWelcome={() => setAuthView('welcome')}
+        />
+      );
+    }
+    if (authView === 'provider-register') {
+      return (
+        <ProviderRegister
+          onSwitchAuth={setAuthView}
+          onBackToWelcome={() => setAuthView('welcome')}
+        />
+      );
+    }
+
+    // Default: Welcome Screen with role options & Demo Mode toggle
+    return <WelcomeScreen onSelectAuth={setAuthView} />;
+  }
 
   return (
     <div className="bg-surface text-on-surface min-h-screen flex flex-col font-body-md antialiased selection:bg-primary-container selection:text-white">
@@ -47,12 +117,12 @@ export const App = () => {
                 </span>
                 <div className="min-w-0">
                   <h4 className="font-bold text-xs uppercase tracking-wider">{liveBanner.title}</h4>
-                  <p className="text-[11px] text-white/95 mt-0.5 leading-snug">{liveBanner.message}</p>
+                  <p className="text-[11px] text-white/90 mt-0.5 leading-snug">{liveBanner.message}</p>
                 </div>
               </div>
 
               <div className="flex items-center gap-1 flex-shrink-0">
-                {liveBanner.type === 'emergency' && role === 'customer' && (
+                {liveBanner.type === 'emergency' && role === 'customer' && demoMode && (
                   <button
                     onClick={() => {
                       setRole('provider');
@@ -90,7 +160,10 @@ export const App = () => {
           <Route path="/provider/earnings" element={<ProviderEarningsPage />} />
 
           {/* Fallback */}
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route
+            path="*"
+            element={<Navigate to={role === 'provider' ? "/provider" : "/"} replace />}
+          />
         </Routes>
       </main>
 

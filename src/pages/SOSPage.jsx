@@ -4,7 +4,7 @@ import { useApp } from '../context/AppContext';
 import { CHENNAI_PROVIDERS } from '../data/providersData';
 
 export const SOSPage = () => {
-  const { triggerWebSocketSOS, userLocation } = useApp();
+  const { authUser, triggerWebSocketSOS, userLocation } = useApp();
   const navigate = useNavigate();
 
   const [emergencyCategory, setEmergencyCategory] = useState('electric');
@@ -19,8 +19,8 @@ export const SOSPage = () => {
 
     // Broadcast through WebSocket to ALL connected providers!
     triggerWebSocketSOS({
-      customerName: "S. Anand",
-      customerPhone: "+91 98840 99882",
+      customerName: authUser?.name || "S. Anand",
+      customerPhone: authUser?.mobile ? `+91 ${authUser.mobile}` : "+91 98840 99882",
       category,
       problem,
       address: `Door 14/2, Sivaganga Road, ${userLocation} - 600017`,
