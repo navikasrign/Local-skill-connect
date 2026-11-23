@@ -8,9 +8,12 @@ import random
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel, Field
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "local_skill_connect.db")
+DIST_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dist")
 
 INITIAL_PROVIDERS = [
     {"id": "p1", "name": "K. Murugan", "category": "Electrician", "role_title": "Master Electrician", "rating": 4.9, "reviews_count": 348, "completed_jobs": 1420},
@@ -219,6 +222,16 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Ensure dist/assets directory exists so static mount does not fail
+assets_dir = os.path.join(DIST_DIR, "assets")
+os.makedirs(assets_dir, exist_ok=True)
+app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+
+@app.on_event("startup")
+def on_startup():
+    init_db()
+    print("🚀 SQLite database initialized and verified on startup.")
 
 def get_job_by_id(job_id: str):
     conn = sqlite3.connect(DB_PATH)
@@ -571,7 +584,7 @@ async def process_review_submission(job_id: str, review_data: ReviewCreate):
 
 
 # REST Endpoints
-@app.get("/")
+@app.get("/api/health")
 def health_check():
     return {
         "status": "online",
@@ -716,6 +729,35 @@ async def websocket_endpoint(websocket: WebSocket, client_type: str, client_id: 
         elif client_type == "customer":
             await manager.disconnect_customer(client_id, websocket)
 
+
+# Static & SPA Fallback Routes for Single-Service Deployment
+@app.get("/")
+async def serve_index():
+    index_path = os.path.join(DIST_DIR, "index.html")
+    if os.path.isfile(index_path):
+        return FileResponse(index_path)
+    return HTMLResponse("<h1>Local Skill Connect</h1><p>Frontend dist/index.html not found. Please run 'npm run build'.</p>")
+
+@app.get("/{full_path:path}")
+async def serve_spa_fallback(full_path: str):
+    # Do not intercept API or WebSocket routes
+    if full_path.startswith("api") or full_path.startswith("ws"):
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    # Serve static files if they exist directly in dist (e.g., /icon.svg, /manifest.webmanifest, /sw.js)
+    file_path = os.path.join(DIST_DIR, full_path)
+    if full_path and os.path.isfile(file_path):
+        return FileResponse(file_path)
+
+    # Fallback to index.html for client-side routing (React Router)
+    index_path = os.path.join(DIST_DIR, "index.html")
+    if os.path.isfile(index_path):
+        return FileResponse(index_path)
+
+    return HTMLResponse("<h1>Local Skill Connect</h1><p>Frontend dist/index.html not found. Please run 'npm run build'.</p>")
+
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True)
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("server:app", host="0.0.0.0", port=port, reload=True)

@@ -192,6 +192,28 @@ BROADCASTING ──> ACCEPTED ──> ON_THE_WAY ──> ARRIVED ──> IN_PROG
 
 ---
 
+### 3. Single-Service Deployment (Render / Production)
+
+The project is pre-configured to run as a single unified service (FastAPI serving both the API, WebSockets, and the compiled React SPA from `dist/`):
+
+1. **Build Command**:
+   ```bash
+   pip install -r requirements.txt
+   ```
+   *(Note: The pre-compiled production `dist/` folder is committed to the repo, so Node.js is not strictly required on the Render Python runtime).*
+
+2. **Start Command**:
+   ```bash
+   uvicorn server:app --host 0.0.0.0 --port $PORT
+   ```
+
+3. **Environment**:
+   - Python 3.10+
+   - Render automatically assigns the `$PORT` environment variable.
+
+
+---
+
 ## 🧪 How to Run the SOS Demo
 
 You can experience the emergency SOS broadcast and atomic first-accept lock in two ways:

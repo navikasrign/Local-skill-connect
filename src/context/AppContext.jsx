@@ -71,7 +71,7 @@ export const AppProvider = ({ children }) => {
 
   // Notifications
   const [notifications, setNotifications] = useState([
-    { id: 1, title: "FastAPI WebSocket Connected", text: "Connected to Chennai Emergency Dispatch Core on ws://localhost:8000.", time: "Just now", unread: true },
+    { id: 1, title: "Emergency Dispatch Connected", text: "Connected to Chennai Emergency Dispatch Core.", time: "Just now", unread: true },
     { id: 2, title: "Govt Udyam Assurance", text: "All 12 trade experts in your radius are 100% verified.", time: "1h ago", unread: false }
   ]);
 
@@ -81,7 +81,7 @@ export const AppProvider = ({ children }) => {
   // Fetch initial providers from FastAPI backend
   const fetchProvidersFromBackend = async () => {
     try {
-      const res = await fetch("http://localhost:8000/api/providers");
+      const res = await fetch("/api/providers");
       if (res.ok) {
         const backendProviders = await res.json();
         setProviders(prev => prev.map(p => {
@@ -112,7 +112,9 @@ export const AppProvider = ({ children }) => {
   useEffect(() => {
     const clientId = role === 'customer' ? 'cust_1' : activeProviderId;
     const clientType = role === 'customer' ? 'customer' : 'provider';
-    const wsUrl = `ws://localhost:8000/ws/${clientType}/${clientId}`;
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = window.location.host;
+    const wsUrl = `${protocol}//${host}/ws/${clientType}/${clientId}`;
 
     console.log(`Connecting WebSocket to ${wsUrl}...`);
     let socket;
@@ -392,7 +394,7 @@ export const AppProvider = ({ children }) => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(payload));
     } else {
-      fetch("http://localhost:8000/api/sos", {
+      fetch("/api/sos", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
@@ -415,7 +417,7 @@ export const AppProvider = ({ children }) => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(payload));
     } else {
-      fetch(`http://localhost:8000/api/jobs/${jobId}/accept`, {
+      fetch(`/api/jobs/${jobId}/accept`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
@@ -426,7 +428,7 @@ export const AppProvider = ({ children }) => {
   // Update Status with strict validation via backend
   const updateJobStatusBackend = async (jobId, newStatus, otp = null, finalAmount = null) => {
     try {
-      const res = await fetch(`http://localhost:8000/api/jobs/${jobId}/status`, {
+      const res = await fetch(`/api/jobs/${jobId}/status`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -464,7 +466,7 @@ export const AppProvider = ({ children }) => {
   // Submit Review via backend
   const submitReviewBackend = async (jobId, reviewData) => {
     try {
-      const res = await fetch(`http://localhost:8000/api/jobs/${jobId}/review`, {
+      const res = await fetch(`/api/jobs/${jobId}/review`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(reviewData)

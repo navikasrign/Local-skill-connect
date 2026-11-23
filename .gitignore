@@ -20,7 +20,6 @@ __pycache__/
 .Python
 build/
 develop-eggs/
-dist/
 downloads/
 eggs/
 .eggs/
@@ -67,9 +66,7 @@ client_secret*.json
 *.db-wal
 *.db-shm
 
-# Build artifacts & logs
-dist/
-dist-ssr/
+# Build artifacts & logs (dist/ is intentionally committed for single-service deployment)
 *.local
 *.log
 
