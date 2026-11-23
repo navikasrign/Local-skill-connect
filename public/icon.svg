@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2563EB" />
+      <stop offset="100%" stop-color="#004AC6" />
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="16" flood-color="#00174B" flood-opacity="0.3" />
+    </filter>
+  </defs>
+  <!-- Background Rounded Rect -->
+  <rect width="512" height="512" rx="128" fill="url(#grad)" />
+  
+  <!-- Outer Shield Emblem -->
+  <path d="M256 80 L390 140 C390 280 256 390 256 420 C256 390 122 280 122 140 Z" fill="#FFFFFF" fill-opacity="0.15" />
+
+  <!-- Inner Verified Star / Bolt & Wrench Symbol -->
+  <g filter="url(#shadow)" fill="#FFFFFF">
+    <!-- Bolt -->
+    <path d="M275 140 L210 260 L260 260 L235 370 L320 235 L270 235 Z" fill="#FFFFFF" />
+  </g>
+
+  <!-- Verified Ring Checkmark -->
+  <circle cx="360" cy="360" r="50" fill="#10B981" />
+  <path d="M342 360 L355 373 L382 346" stroke="#FFFFFF" stroke-width="10" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+</svg>
